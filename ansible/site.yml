@@ -1,0 +1,9 @@
+---
+# Run the whole self-managed build in order. For the write-up, run them one
+# at a time and capture proof between each (see IMPLEMENTATION-GUIDE.md).
+- import_playbook: 00-common.yml
+- import_playbook: 01-controlplane.yml
+- import_playbook: 02-workers.yml
+- import_playbook: 03-vultr-integrations.yml
+- import_playbook: 04-monitoring.yml
+- import_playbook: 05-gitea.yml

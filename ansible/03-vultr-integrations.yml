@@ -1,0 +1,105 @@
+---
+# Stage 3: the managed layer, installed by hand.
+#   CCM  → nodes initialize (taint removed), LoadBalancer Services get IPs
+#   CSI  → vultr-block-storage StorageClass exists, PVCs bind
+# Proof BEFORE this stage: nodes NotReady + tainted, Calico Pending,
+#   `kubectl get sc` empty. Proof AFTER: all three flip.
+- name: Install Vultr CCM and CSI
+  hosts: controlplane
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  vars:
+    vultr_api_key: "{{ lookup('env', 'VULTR_API_KEY') }}"
+  tasks:
+    - name: Fail if VULTR_API_KEY is not set
+      ansible.builtin.assert:
+        that: vultr_api_key | length > 0
+        fail_msg: "export VULTR_API_KEY before running this playbook"
+
+    - name: Install helm
+      ansible.builtin.shell: |
+        curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Install python kubernetes client for kubernetes.core modules
+      ansible.builtin.apt:
+        name: python3-kubernetes
+        state: present
+
+    # ---- CCM ---------------------------------------------------------------
+    - name: CCM secret (api key + region)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: vultr-ccm
+            namespace: kube-system
+          type: Opaque
+          stringData:
+            api-key: "{{ vultr_api_key }}"
+            region: "{{ vultr_region }}"
+
+    - name: Add Vultr helm repo
+      kubernetes.core.helm_repository:
+        name: vultr
+        repo_url: https://vultr.github.io/helm-charts/
+
+    - name: Install Vultr CCM
+      kubernetes.core.helm:
+        name: vultr-ccm
+        chart_ref: vultr/vultr-ccm
+        chart_version: "{{ vultr_ccm_chart_version }}"
+        release_namespace: kube-system
+        wait: true
+        # The chart may create its own secret from values; if so, pass the
+        # key via values instead and drop the Secret task above. Check
+        # `helm show values vultr/vultr-ccm` before first run.
+
+    - name: Wait for nodes to be initialized by the CCM (taint removed)
+      ansible.builtin.shell: |
+        kubectl get nodes -o json \
+          | jq -e '[.items[].spec.taints // [] | .[] | select(.key=="node.cloudprovider.kubernetes.io/uninitialized")] | length == 0'
+      register: taint_check
+      until: taint_check.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    # ---- CSI ---------------------------------------------------------------
+    - name: CSI secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: vultr-csi
+            namespace: kube-system
+          type: Opaque
+          stringData:
+            api-key: "{{ vultr_api_key }}"
+
+    - name: Install Vultr CSI driver
+      ansible.builtin.command: kubectl apply -f {{ vultr_csi_manifest_url }}
+      changed_when: false
+
+    - name: Wait for vultr-block-storage StorageClass
+      ansible.builtin.command: kubectl get sc vultr-block-storage
+      register: sc_check
+      until: sc_check.rc == 0
+      retries: 20
+      delay: 5
+      changed_when: false
+
+    - name: Wait for all nodes Ready
+      ansible.builtin.shell: |
+        kubectl get nodes --no-headers | awk '{print $2}' | grep -vq NotReady
+      register: ready_check
+      until: ready_check.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false

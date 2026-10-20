@@ -1,0 +1,75 @@
+---
+# Stage 5: the same Gitea chart as VKE. Differences, on purpose:
+#   - Postgres is the chart's bundled in-cluster instance (a second PVC via
+#     CSI) instead of Vultr Managed DB — shows the CSI path twice and gives
+#     you a managed-vs-in-cluster DB talking point.
+#   - Everything else (LBs, policies, metrics, RWO PVC) matches.
+- name: Deploy Gitea
+  hosts: controlplane
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: Namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: gitea
+
+    - name: Admin password
+      ansible.builtin.set_fact:
+        gitea_admin_password: "{{ lookup('password', repo_root + '/ansible/artifacts/gitea-admin-kubeadm chars=ascii_letters,digits length=24') }}"
+
+    - name: Admin secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: gitea-admin
+            namespace: gitea
+          stringData:
+            username: gitea-admin
+            password: "{{ gitea_admin_password }}"
+
+    - name: Copy shared Gitea values
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/helm/gitea-values.yaml"
+        dest: /root/gitea-values.yaml
+
+    - name: Add gitea repo
+      kubernetes.core.helm_repository:
+        name: gitea-charts
+        repo_url: https://dl.gitea.com/charts/
+
+    - name: Install Gitea
+      kubernetes.core.helm:
+        name: gitea
+        chart_ref: gitea-charts/gitea
+        chart_version: "{{ gitea_chart_version }}"
+        release_namespace: gitea
+        values_files: [/root/gitea-values.yaml]
+        values:
+          gitea:
+            config:
+              server:
+                DOMAIN: "{{ gitea_domain }}"
+                ROOT_URL: "http://{{ gitea_domain }}/"
+                SSH_DOMAIN: "{{ gitea_domain }}"
+          postgresql:
+            enabled: true
+            primary:
+              persistence:
+                storageClass: vultr-block-storage
+                size: 10Gi
+        wait: true
+        timeout: 10m
+
+    - name: NetworkPolicies (same as VKE)
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ repo_root }}/helm/gitea-networkpolicies.yaml"

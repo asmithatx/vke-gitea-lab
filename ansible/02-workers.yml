@@ -1,0 +1,21 @@
+---
+# Stage 2: join workers. Proof: `kubectl get nodes` shows 3 nodes, all
+# NotReady (no CNI running yet) and all tainted uninitialized.
+- name: Get join command from control plane
+  hosts: controlplane
+  become: true
+  tasks:
+    - name: Generate join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_cmd
+      changed_when: false
+
+- name: Join workers
+  hosts: workers
+  become: true
+  tasks:
+    - name: kubeadm join
+      ansible.builtin.command: >
+        {{ hostvars[groups['controlplane'][0]].join_cmd.stdout }}
+      args:
+        creates: /etc/kubernetes/kubelet.conf

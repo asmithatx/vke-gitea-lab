@@ -1,0 +1,95 @@
+---
+# Stage 1: bootstrap the control plane. This is the part VKE never shows you.
+# Proof: static pods in kube-system (etcd, kube-apiserver, kube-controller-
+# manager, kube-scheduler), kubeconfig, join command.
+- name: Initialize control plane
+  hosts: controlplane
+  become: true
+  tasks:
+    - name: Write kubeadm config
+      ansible.builtin.copy:
+        dest: /root/kubeadm-config.yaml
+        content: |
+          apiVersion: kubeadm.k8s.io/v1beta4
+          kind: InitConfiguration
+          localAPIEndpoint:
+            advertiseAddress: {{ private_ip }}
+          nodeRegistration:
+            kubeletExtraArgs:
+              - name: cloud-provider
+                value: external
+              - name: node-ip
+                value: {{ private_ip }}
+          ---
+          apiVersion: kubeadm.k8s.io/v1beta4
+          kind: ClusterConfiguration
+          kubernetesVersion: v{{ k8s_version }}
+          clusterName: gitea-kubeadm
+          controlPlaneEndpoint: "{{ private_ip }}:6443"
+          apiServer:
+            certSANs:
+              - {{ ansible_host }}
+              - {{ private_ip }}
+          networking:
+            podSubnet: {{ pod_cidr }}
+            serviceSubnet: {{ service_cidr }}
+          ---
+          apiVersion: kubelet.config.k8s.io/v1beta1
+          kind: KubeletConfiguration
+          cgroupDriver: systemd
+
+    - name: kubeadm init
+      ansible.builtin.command: kubeadm init --config /root/kubeadm-config.yaml --upload-certs
+      args:
+        creates: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+
+    - name: Set up kubectl for root
+      ansible.builtin.shell: |
+        mkdir -p /root/.kube
+        cp -f /etc/kubernetes/admin.conf /root/.kube/config
+      args:
+        creates: /root/.kube/config
+
+    # The admin.conf points at the private IP. Rewrite a copy to the public IP
+    # for use from your workstation (certSANs above makes that valid).
+    - name: Fetch kubeconfig for the workstation
+      ansible.builtin.fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ repo_root }}/ansible/artifacts/kubeconfig-kubeadm"
+        flat: true
+
+    - name: Point fetched kubeconfig at the public IP
+      delegate_to: localhost
+      become: false
+      ansible.builtin.replace:
+        path: "{{ repo_root }}/ansible/artifacts/kubeconfig-kubeadm"
+        regexp: "https://{{ private_ip }}:6443"
+        replace: "https://{{ ansible_host }}:6443"
+
+    - name: Generate join command
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_cmd
+      changed_when: false
+
+    - name: Share join command with workers
+      ansible.builtin.set_fact:
+        kubeadm_join_command: "{{ join_cmd.stdout }}"
+
+    # ---- CNI (Calico, to match VKE) ----------------------------------------
+    # Calico pods WILL NOT schedule yet: every node carries the cloud-provider
+    # "uninitialized" taint until the CCM runs. Capture that in stage 3.
+    - name: Install Calico operator
+      ansible.builtin.command: >
+        kubectl create -f
+        https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+      register: calico_op
+      changed_when: "'created' in calico_op.stdout"
+      failed_when: calico_op.rc != 0 and 'AlreadyExists' not in calico_op.stderr
+
+    - name: Install Calico custom resources
+      ansible.builtin.shell: |
+        curl -fsSL https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/custom-resources.yaml \
+          | sed 's#192.168.0.0/16#{{ pod_cidr }}#' \
+          | kubectl apply -f -
+      changed_when: false

@@ -1,0 +1,64 @@
+# Gitea values for the kubeadm cluster. Mirrors the inline values in
+# terraform/vke/gitea.tf except for the database (bundled Postgres here,
+# Vultr Managed DB there). Keep the two in sync when you change one.
+
+postgresql-ha:
+  enabled: false
+valkey-cluster:
+  enabled: false
+valkey:
+  enabled: true
+  primary:
+    persistence:
+      enabled: false
+
+# postgresql.enabled / persistence are set by the playbook so the
+# StorageClass is explicit there.
+
+gitea:
+  admin:
+    existingSecret: gitea-admin
+  config:
+    metrics:
+      ENABLED: true
+    service:
+      DISABLE_REGISTRATION: true
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: vultr-block-storage
+  accessModes: ["ReadWriteOnce"]   # RWO on purpose — runbook 02
+replicaCount: 1
+
+service:
+  http:
+    type: LoadBalancer
+    port: 80
+    annotations:
+      service.beta.kubernetes.io/vultr-loadbalancer-label: "gitea-kubeadm-http"
+      service.beta.kubernetes.io/vultr-loadbalancer-protocol: "http"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-protocol: "http"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-path: "/api/healthz"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-check-interval: "10"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-response-timeout: "5"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-unhealthy-threshold: "3"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-healthy-threshold: "3"
+  ssh:
+    type: LoadBalancer
+    port: 22
+    annotations:
+      service.beta.kubernetes.io/vultr-loadbalancer-label: "gitea-kubeadm-ssh"
+      service.beta.kubernetes.io/vultr-loadbalancer-protocol: "tcp"
+      service.beta.kubernetes.io/vultr-loadbalancer-healthcheck-protocol: "tcp"
+
+ingress:
+  enabled: false
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"

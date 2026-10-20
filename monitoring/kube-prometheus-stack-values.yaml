@@ -1,0 +1,62 @@
+# Shared values for kube-prometheus-stack.
+# Used by BOTH clusters: terraform/vke/monitoring.tf reads this file, and the
+# kubeadm Ansible playbook passes it to helm. Keeping one file is the point —
+# the observability layer should be identical so the comparison is fair.
+
+fullnameOverride: kps
+
+grafana:
+  enabled: true
+  # Admin password is injected per-cluster (Terraform / Ansible), not here.
+  defaultDashboardsEnabled: true
+  # Pick up any ConfigMap labeled grafana_dashboard=1 in any namespace
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  # ClusterIP + port-forward keeps us at two LBs. Switch to LoadBalancer with
+  # the vultr-loadbalancer-* annotations if you want a third LB for proof.
+  service:
+    type: ClusterIP
+
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    # Without these two set to false, the operator only picks up
+    # ServiceMonitors/PodMonitors that carry the release label — the
+    # #1 "why isn't my app being scraped" ticket.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          # On VKE this is the default SC. On kubeadm it only exists after the
+          # Vultr CSI driver is installed — Prometheus will sit in Pending
+          # until then, which is deliberate (runbook 05).
+          storageClassName: vultr-block-storage
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    storage: {} # emptyDir is fine for the lab
+
+# Control-plane scrapes: VKE hides the control plane, so these fail there.
+# On kubeadm they work. That difference is itself a proof point (guide §6).
+kubeControllerManager:
+  enabled: true
+kubeScheduler:
+  enabled: true
+kubeEtcd:
+  enabled: true
+kubeProxy:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+kubeStateMetrics:
+  enabled: true

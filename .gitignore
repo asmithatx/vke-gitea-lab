@@ -1,0 +1,16 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+
+# Ansible
+ansible/inventory/hosts.ini
+ansible/artifacts/*
+!ansible/artifacts/.gitkeep
+
+# Evidence with secrets — review before committing
+runbooks/evidence/**/*secret*
+
+.env

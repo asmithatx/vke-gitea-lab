@@ -1,0 +1,56 @@
+---
+# Stage 4: identical observability layer to the VKE side (same values file).
+# Proof: Prometheus targets page — here the control-plane scrapes
+# (etcd, scheduler, controller-manager) are UP; on VKE they're absent.
+- name: Install kube-prometheus-stack
+  hosts: controlplane
+  become: true
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: Copy shared values file
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/monitoring/kube-prometheus-stack-values.yaml"
+        dest: /root/kps-values.yaml
+
+    - name: Copy Gitea dashboard
+      ansible.builtin.copy:
+        src: "{{ repo_root }}/monitoring/gitea-dashboard.json"
+        dest: /root/gitea-dashboard.json
+
+    - name: Generate Grafana admin password
+      ansible.builtin.set_fact:
+        grafana_admin_password: "{{ lookup('password', repo_root + '/ansible/artifacts/grafana-admin-kubeadm chars=ascii_letters,digits length=24') }}"
+
+    - name: Add prometheus-community repo
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: https://prometheus-community.github.io/helm-charts
+
+    - name: Install kube-prometheus-stack
+      kubernetes.core.helm:
+        name: kps
+        chart_ref: prometheus-community/kube-prometheus-stack
+        chart_version: "{{ kps_chart_version }}"
+        release_namespace: monitoring
+        create_namespace: true
+        values_files: [/root/kps-values.yaml]
+        values:
+          grafana:
+            adminPassword: "{{ grafana_admin_password }}"
+        wait: true
+        timeout: 15m
+
+    - name: Gitea dashboard ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: gitea-dashboard
+            namespace: monitoring
+            labels:
+              grafana_dashboard: "1"
+          data:
+            gitea-lab.json: "{{ lookup('file', repo_root + '/monitoring/gitea-dashboard.json') }}"

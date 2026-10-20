@@ -1,0 +1,85 @@
+{
+  "title": "Gitea Lab",
+  "uid": "gitea-lab",
+  "schemaVersion": 39,
+  "editable": true,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Gitea up",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(up{job=~\".*gitea.*\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } } }
+    },
+    {
+      "type": "stat",
+      "title": "Repositories",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(gitea_repositories)", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Users",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(gitea_users)", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Gitea pods ready",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(kube_pod_status_ready{namespace=\"gitea\",condition=\"true\",pod=~\"gitea-[0-9a-z]+-[0-9a-z]+\"})", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "PVCs not Bound (gitea ns)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(kube_persistentvolumeclaim_status_phase{namespace=\"gitea\",phase!=\"Bound\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gitea process CPU (cores)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total{job=~\".*gitea.*\"}[5m])", "legendFormat": "{{pod}}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gitea resident memory",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "process_resident_memory_bytes{job=~\".*gitea.*\"}", "legendFormat": "{{pod}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Node CPU busy %",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))", "legendFormat": "{{instance}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Gitea PVC used %",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "100 * kubelet_volume_stats_used_bytes{namespace=\"gitea\"} / kubelet_volume_stats_capacity_bytes{namespace=\"gitea\"}", "legendFormat": "{{persistentvolumeclaim}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pod restarts (gitea ns)",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "increase(kube_pod_container_status_restarts_total{namespace=\"gitea\"}[15m])", "legendFormat": "{{pod}}/{{container}}", "refId": "A" }]
+    }
+  ]
+}
