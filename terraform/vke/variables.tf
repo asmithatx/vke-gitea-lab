@@ -18,7 +18,7 @@ variable "cluster_label" {
 # `vultr-cli kubernetes versions` lists what's currently offered.
 variable "k8s_version" {
   type    = string
-  default = "v1.31.0+1"
+  default = "v1.37.1+2"
 }
 
 variable "node_plan" {

@@ -3,7 +3,7 @@ output "cluster_id" {
 }
 
 output "kubeconfig" {
-  value     = base64decode(vultr_kubernetes.lab.kube_config)
+  value     = local.kubeconfig_raw
   sensitive = true
   # terraform output -raw kubeconfig > ~/.kube/gitea-lab && export KUBECONFIG=~/.kube/gitea-lab
 }
